@@ -1,3 +1,77 @@
+2018-07-03  Alexey Kopytov  <akopytov@gmail.com>
+
+	* version 1.0.15
+	* CI/build/packaging: add Fedora 28
+	* CI/build/packaging: add Ubuntu Bionic
+	* CI/build/packaging: remove Fedora 26 (EOL)
+	* CI/build/packaging: remove Debian Wheezy (EOL)
+	* fileio: fix GH-229 (--file-fsync-freq=0 seems to prevent
+	fsync() at the end of the test)
+	* command line: improve parsing of boolean command line options
+	* tests: fix GH-220 (Testsuite api_sql_mysql.t failed ...)
+	* tests: fix GH-223 (test failure on ppc64)
+	* tests: fix opt_help.t to pass when the binary is not
+	configured with MySQL support
+	* MySQL driver: use it by default in DB benchmarks
+
+2018-04-01  Alexey Kopytov  <akopytov@gmail.com>
+
+	* version 1.0.14
+	* reports: fix JSON stats reporter to produce valid JSON
+	(GH-195)
+	* Lua SQL API: don't crash when query_row() is called with a
+	SELECT returning empty result set
+	* Lua SQL API: don't crash when bulk insert API calls are used
+	out of order
+	* regression tests: make PostgreSQL tests compatible with the
+	new dump format introduced in 10.3
+	* regression tests: minor stability and coverage improvements
+
+2018-02-17  Alexey Kopytov  <akopytov@gmail.com>
+
+	* version 1.0.13
+	* remove Ubuntu Zesty from CI/build/packaging matrices (EOL)
+	* minor cleanups in build scripts
+	* improve report formatting for long latency values
+	* fileio: --file-extra-flags now accepts a list of flags rather
+	than just a single value
+	* OLTP: re-prepare prepared statements after reconnects, i.e. in
+	cases when a server connection is lost and sysbench is
+	configured to ignore such errors
+
+2018-01-17  Alexey Kopytov  <akopytov@gmail.com>
+
+	* version 1.0.12
+	* improve --rate mode precision for high argument values
+	* add Fedora Rawhide and Debian Sid to CI matrix
+	* fix compile-time architecture detection for some Broadwell
+	CPUs which were incorrectly identified as Core 2.
+	* remove build dependency on xxd (and vim-minimal package)
+	* fix Lua API to correctly stop the benchmark when event()
+	returns a value other than nil or false (thanks to caojiafeng
+	for the patch)
+	* fix the fileio benchmark when the specified file size is not a
+	multiple of block size
+	* fix the fileio benchmark to throw a descriptive error when the
+	specified file size does not match the size of files created by
+	'prepare'
+	* remove Fedora 25 from CI/build/packaging matrices (EOL)
+	* minor improvements in tests and documentation.
+
+2017-12-09  Alexey Kopytov  <akopytov@gmail.com>
+
+	* version 1.0.11
+	* add Debian Stretch to CI/build/packaging matrices
+	* add Fedora 27 to CI/build/packaging matrices
+	* make statistic counters usable from Lua scripts
+	* fix the PostgreSQL driver to be compatible with CockroachDB
+	(GH-180)
+	* fix oltp_insert.lua to work correctly when both --tables and
+	--threads are greater than 1 (GH-178)
+	* fix FreeBSD builds by adding -rdynamic to the default linker
+	flags (GH-174)
+	* minor documentation updates
+
 2017-10-25  Alexey Kopytov  <akopytov@gmail.com>
 
 	* version 1.0.10

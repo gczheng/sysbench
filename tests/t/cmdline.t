@@ -169,20 +169,20 @@ Command line options tests
   
   function help()
   Available options:
-    --dash-opt=STRING      dash-opt desc [dash-opt val]
-    --str_opt1=STRING      str_opt1 description
-    --bool_opt3[=on|off]   bool_opt3 description
-    --int_opt2=N           int_opt2 description
-    --list_opt2=[LIST,...] list_opt2 description
-    --float_opt2=N         float_opt2 description [0.2]
-    --str_opt2=STRING      str_opt2 description [opt2]
-    --list_opt1=[LIST,...] list_opt1 description [foo,bar]
-    --str_opt3=STRING      str_opt3 description [opt3]
-    --int_opt3=N           int_opt3 description [20]
     --bool_opt1[=on|off]   bool_opt1 description [off]
-    --float_opt1=N         float_opt1 description [3.14]
     --bool_opt2[=on|off]   bool_opt2 description [on]
+    --bool_opt3[=on|off]   bool_opt3 description
+    --dash-opt=STRING      dash-opt desc [dash-opt val]
+    --float_opt1=N         float_opt1 description [3.14]
+    --float_opt2=N         float_opt2 description [0.2]
     --int_opt1=N           int_opt1 description [10]
+    --int_opt2=N           int_opt2 description
+    --int_opt3=N           int_opt3 description [20]
+    --list_opt1=[LIST,...] list_opt1 description [foo,bar]
+    --list_opt2=[LIST,...] list_opt2 description
+    --str_opt1=STRING      str_opt1 description
+    --str_opt2=STRING      str_opt2 description [opt2]
+    --str_opt3=STRING      str_opt3 description [opt3]
   
   
   opt2
@@ -414,11 +414,10 @@ Command line options tests
   [1]
 
   $ cat >cmdline.lua <<EOF
+  > sysbench.cmdline.options = { opt1 = {"opt1"}, opt2 = {"opt2"} }
   > function print_cmd()
-  >   for k, v in pairs(sysbench.cmdline.argv) do
-  >     print(string.format("argv[%u] = %s", k, v))
-  >   end
-  >   print(string.format("sysbench.cmdline.command = %s", sysbench.cmdline.command))
+  >   print("argv = " .. require("inspect")(sysbench.cmdline.argv))
+  >   print(string.format("sysbench.cmdline.command = %s",sysbench.cmdline.command))
   > end
   > function prepare()
   >  print_cmd()
@@ -428,25 +427,20 @@ Command line options tests
   $ sysbench --opt1 --opt2=val cmdline.lua
   sysbench * (glob)
   
-  argv[0] = sysbench
-  argv[1] = --opt1
-  argv[2] = --opt2=val
-  argv[3] = cmdline.lua
+  argv = { "--opt1", "--opt2=val", "cmdline.lua",
+    [0] = "sysbench"
+  }
   sysbench.cmdline.command = nil
   $ sysbench --opt1 --opt2=val cmdline.lua prepare
   sysbench * (glob)
   
-  argv[0] = sysbench
-  argv[1] = --opt1
-  argv[2] = --opt2=val
-  argv[3] = cmdline.lua
-  argv[4] = prepare
+  argv = { "--opt1", "--opt2=val", "cmdline.lua", "prepare",
+    [0] = "sysbench"
+  }
   sysbench.cmdline.command = prepare
-  argv[0] = sysbench
-  argv[1] = --opt1
-  argv[2] = --opt2=val
-  argv[3] = cmdline.lua
-  argv[4] = prepare
+  argv = { "--opt1", "--opt2=val", "cmdline.lua", "prepare",
+    [0] = "sysbench"
+  }
   sysbench.cmdline.command = prepare
 
   $ sysbench - <<EOF
@@ -496,4 +490,37 @@ Command line options tests
   $ LUA_PATH="$PWD/?.lua;$LUA_PATH" sysbench cmdline_module --events=1 --verbosity=0 run
   cmdline_module loaded
   FATAL: */cmdline_module.lua:5: test error (glob)
+  [1]
+
+##########################################################################
+# Test boolean option validation
+##########################################################################
+  $ cat > cmdline.lua <<EOF
+  > sysbench.cmdline.options = {
+  >  bool_opt = {"Flag", false}
+  > }
+  > 
+  > function prepare()
+  >   print("bool_opt = " .. tostring(sysbench.opt.bool_opt))
+  > end
+  > EOF
+
+  $ SB_ARGS=--verbosity=0
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=on prepare
+  bool_opt = true
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=off prepare
+  bool_opt = false
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=true prepare
+  bool_opt = true
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=false prepare
+  bool_opt = false
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=1 prepare
+  bool_opt = true
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=0 prepare
+  bool_opt = false
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=5 prepare
+  invalid option: --bool-opt=5
+  [1]
+  $ sysbench $SB_ARGS cmdline.lua --bool-opt=foo prepare
+  invalid option: --bool-opt=foo
   [1]
