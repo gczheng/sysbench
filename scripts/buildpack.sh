@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright (C) 2017-2018 Alexey Kopytov <akopytov@gmail.com>
+# Copyright (C) 2017-2019 Alexey Kopytov <akopytov@gmail.com>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -47,34 +47,35 @@ PACKAGECLOUD_EXTRA_ARGS=${PACKAGECLOUD_EXTRA_ARGS:-}
 PACKPACK_REPO=${PACKPACK_REPO:-akopytov/packpack}
 
 distros_x86_64=(
-    "el 6 x86_64"
     "el 7 x86_64"
-    "fedora 27 x86_64"
-    "fedora 28 x86_64"
-    "ubuntu trusty x86_64"
+    "el 8 x86_64"
+    "fedora 32 x86_64"
+    "fedora 33 x86_64"
     "ubuntu xenial x86_64"
     "ubuntu bionic x86_64"
-    "debian jessie x86_64"
+    "ubuntu focal x86_64"
+    "ubuntu groovy x86_64"
     "debian stretch x86_64"
+    "debian buster x86_64"
 )
 
 distros_i386=(
-    "ubuntu trusty i386"
     "ubuntu xenial i386"
     "ubuntu bionic i386"
-    "debian jessie i386"
     "debian stretch i386"
+    "debian buster i386"
 )
 
 distros_aarch64=(
     "el 7 aarch64"
-    "fedora 27 aarch64"
-    "fedora 28 aarch64"
+    "fedora 32 aarch64"
+    "fedora 33 aarch64"
     "ubuntu bionic aarch64"
-    "ubuntu trusty aarch64"
+    "ubuntu focal aarch64"
+    "ubuntu groovy aarch64"
     "ubuntu xenial aarch64"
-    "debian jessie aarch64"
     "debian stretch aarch64"
+    "debian buster aarch64"
 )
 
 main()

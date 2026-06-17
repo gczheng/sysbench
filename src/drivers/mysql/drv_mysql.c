@@ -64,7 +64,7 @@ static sb_arg_t mysql_drv_args[] =
   SB_OPT("mysql-user", "MySQL user", "sbtest", STRING),
   SB_OPT("mysql-password", "MySQL password", "", STRING),
   SB_OPT("mysql-db", "MySQL database name", "sbtest", STRING),
-#ifdef MYSQL_OPT_SSL_MODE
+#ifdef HAVE_MYSQL_OPT_SSL_MODE
   SB_OPT("mysql-ssl", "SSL mode. This accepts the same values as the "
          "--ssl-mode option in the MySQL client utilities. Disabled by default",
          "disabled", STRING),
@@ -81,6 +81,8 @@ static sb_arg_t mysql_drv_args[] =
          STRING),
   SB_OPT("mysql-compression", "use compression, if available in the "
          "client library", "off", BOOL),
+  SB_OPT("mysql-compression-algorithms", "compression algorithms to use",
+	 "zlib", STRING),
   SB_OPT("mysql-debug", "trace all client library calls", "off", BOOL),
   SB_OPT("mysql-ignore-errors", "list of errors to ignore, or \"all\"",
          "1213,1020,1205", LIST),
@@ -98,8 +100,8 @@ typedef struct
   const char         *user;
   const char         *password;
   const char         *db;
-#ifdef MYSQL_OPT_SSL_MODE
-  int                ssl_mode;
+#ifdef HAVE_MYSQL_OPT_SSL_MODE
+  unsigned int       ssl_mode;
 #endif
   bool               use_ssl;
   const char         *ssl_key;
@@ -107,6 +109,9 @@ typedef struct
   const char         *ssl_ca;
   const char         *ssl_cipher;
   unsigned char      use_compression;
+#ifdef MYSQL_OPT_COMPRESSION_ALGORITHMS
+  const char         *compression_alg;
+#endif
   unsigned char      debug;
   sb_list_t          *ignored_errors;
   unsigned int       dry_run;
@@ -122,6 +127,14 @@ typedef struct
   unsigned int port;
   char         *socket;
 } db_mysql_conn_t;
+
+#ifdef HAVE_MYSQL_OPT_SSL_MODE
+typedef struct {
+  const char *name;
+  enum mysql_ssl_mode mode;
+} ssl_mode_map_t;
+#endif
+
 
 /* Structure used for DB-to-MySQL bind types map */
 
@@ -172,6 +185,30 @@ static sb_list_item_t *sockets_pos;
 
 static pthread_mutex_t pos_mutex;
 
+#ifdef HAVE_MYSQL_OPT_SSL_MODE
+
+#if MYSQL_VERSION_ID < 50711
+/*
+  In MySQL 5.6 the only valid SSL mode is SSL_MODE_REQUIRED. Define
+  SSL_MODE_DISABLED to enable the 'disabled' default value for --mysql-ssl
+*/
+#define SSL_MODE_DISABLED 1
+#endif
+
+static ssl_mode_map_t ssl_mode_names[] = {
+  {"DISABLED", SSL_MODE_DISABLED},
+#if MYSQL_VERSION_ID >= 50711
+  {"PREFERRED", SSL_MODE_PREFERRED},
+#endif
+  {"REQUIRED", SSL_MODE_REQUIRED},
+#if MYSQL_VERSION_ID >= 50711
+  {"VERIFY_CA", SSL_MODE_VERIFY_CA},
+  {"VERIFY_IDENTITY", SSL_MODE_VERIFY_IDENTITY},
+#endif
+  {NULL, 0}
+};
+#endif
+
 /* MySQL driver operations */
 
 static int mysql_drv_init(void);
@@ -184,10 +221,13 @@ static int mysql_drv_prepare(db_stmt_t *, const char *, size_t);
 static int mysql_drv_bind_param(db_stmt_t *, db_bind_t *, size_t);
 static int mysql_drv_bind_result(db_stmt_t *, db_bind_t *, size_t);
 static db_error_t mysql_drv_execute(db_stmt_t *, db_result_t *);
+static db_error_t mysql_drv_stmt_next_result(db_stmt_t *, db_result_t *);
 static int mysql_drv_fetch(db_result_t *);
 static int mysql_drv_fetch_row(db_result_t *, db_row_t *);
 static db_error_t mysql_drv_query(db_conn_t *, const char *, size_t,
                            db_result_t *);
+static bool mysql_drv_more_results(db_conn_t *);
+static db_error_t mysql_drv_next_result(db_conn_t *, db_result_t *);
 static int mysql_drv_free_results(db_result_t *);
 static int mysql_drv_close(db_stmt_t *);
 static int mysql_drv_thread_done(int);
@@ -211,8 +251,11 @@ static db_driver_t mysql_driver =
     .bind_param = mysql_drv_bind_param,
     .bind_result = mysql_drv_bind_result,
     .execute = mysql_drv_execute,
+    .stmt_next_result = mysql_drv_stmt_next_result,
     .fetch = mysql_drv_fetch,
     .fetch_row = mysql_drv_fetch_row,
+    .more_results = mysql_drv_more_results,
+    .next_result = mysql_drv_next_result,
     .free_results = mysql_drv_free_results,
     .close = mysql_drv_close,
     .query = mysql_drv_query,
@@ -272,12 +315,21 @@ int mysql_drv_init(void)
   args.ssl_cert = sb_get_value_string("mysql-ssl-cert");
   args.ssl_ca = sb_get_value_string("mysql-ssl-ca");
 
-#ifdef MYSQL_OPT_SSL_MODE
+#ifdef HAVE_MYSQL_OPT_SSL_MODE
   const char * const ssl_mode_string = sb_get_value_string("mysql-ssl");
-  args.ssl_mode = find_type(ssl_mode_string, ssl_mode_typelib, FIND_TYPE_BASIC);
-  if (args.ssl_mode <= 0)
+
+  args.ssl_mode = 0;
+
+  for (int i = 0; ssl_mode_names[i].name != NULL; i++) {
+    if (!strcasecmp(ssl_mode_string, ssl_mode_names[i].name)) {
+      args.ssl_mode = ssl_mode_names[i].mode;
+      break;
+    }
+  }
+
+  if (args.ssl_mode == 0)
   {
-    log_text(LOG_FATAL, "Invalid value for --mysql-ssl: '%s'");
+    log_text(LOG_FATAL, "Invalid value for --mysql-ssl: '%s'", ssl_mode_string);
     return 1;
   }
 
@@ -287,6 +339,10 @@ int mysql_drv_init(void)
 #endif
 
   args.use_compression = sb_get_value_flag("mysql-compression");
+#ifdef MYSQL_OPT_COMPRESSION_ALGORITHMS
+  args.compression_alg = sb_get_value_string("mysql-compression-algorithms");
+#endif
+
   args.debug = sb_get_value_flag("mysql-debug");
   if (args.debug)
     sb_globals.verbosity = LOG_DEBUG;
@@ -344,9 +400,9 @@ static int mysql_drv_real_connect(db_mysql_conn_t *db_mysql_con)
 {
   MYSQL          *con = db_mysql_con->mysql;
 
-#ifdef MYSQL_OPT_SSL_MODE
+#ifdef HAVE_MYSQL_OPT_SSL_MODE
   DEBUG("mysql_options(%p,%s,%d)", con, "MYSQL_OPT_SSL_MODE", args.ssl_mode);
-  mysql_options(con, MYSQL_OPT_SSL_MODE, args.ssl_mode);
+  mysql_options(con, MYSQL_OPT_SSL_MODE, &args.ssl_mode);
 #endif
 
   if (args.use_ssl)
@@ -357,13 +413,17 @@ static int mysql_drv_real_connect(db_mysql_conn_t *db_mysql_con)
 
     mysql_ssl_set(con, args.ssl_key, args.ssl_cert, args.ssl_ca, NULL,
                   args.ssl_cipher);
-
   }
 
   if (args.use_compression)
   {
     DEBUG("mysql_options(%p, %s, %s)",con, "MYSQL_OPT_COMPRESS", "NULL");
     mysql_options(con, MYSQL_OPT_COMPRESS, NULL);
+
+#ifdef MYSQL_OPT_COMPRESSION_ALGORITHMS
+    DEBUG("mysql_options(%p, %s, %s)",con, "MYSQL_OPT_COMPRESSION_ALGORITHMS", args.compression_alg);
+    mysql_options(con, MYSQL_OPT_COMPRESSION_ALGORITHMS, args.compression_alg);
+#endif
   }
 
   DEBUG("mysql_real_connect(%p, \"%s\", \"%s\", \"%s\", \"%s\", %u, \"%s\", %s)",
@@ -563,8 +623,6 @@ int mysql_drv_prepare(db_stmt_t *stmt, const char *query, size_t len)
     }
 
     stmt->query = strdup(query);
-    stmt->counter = (mysql_stmt_field_count(mystmt) > 0) ?
-      SB_CNT_READ : SB_CNT_WRITE;
 
     return 0;
   }
@@ -839,7 +897,14 @@ db_error_t mysql_drv_execute(db_stmt_t *stmt, db_result_t *rs)
       return check_error(con, "mysql_stmt_execute()", stmt->query,
                          &rs->counter);
 
-    if (stmt->counter != SB_CNT_READ)
+    err = mysql_stmt_store_result(stmt->ptr);
+    DEBUG("mysql_stmt_store_result(%p) = %d", stmt->ptr, err);
+
+    if (err)
+      return check_error(con, "mysql_stmt_store_result()", NULL, &rs->counter);
+
+    if (mysql_stmt_errno(stmt->ptr) == 0 &&
+        mysql_stmt_field_count(stmt->ptr) == 0)
     {
       rs->nrows = (uint32_t) mysql_stmt_affected_rows(stmt->ptr);
       DEBUG("mysql_stmt_affected_rows(%p) = %u", stmt->ptr,
@@ -850,18 +915,15 @@ db_error_t mysql_drv_execute(db_stmt_t *stmt, db_result_t *rs)
       return DB_ERROR_NONE;
     }
 
-    err = mysql_stmt_store_result(stmt->ptr);
-    DEBUG("mysql_stmt_store_result(%p) = %d", stmt->ptr, err);
-    if (err)
-    {
-      return check_error(con, "mysql_stmt_store_result()", NULL,
-                         &rs->counter);
-    }
+    rs->counter = SB_CNT_READ;
 
-    rs->counter = stmt->counter;
     rs->nrows = (uint32_t) mysql_stmt_num_rows(stmt->ptr);
     DEBUG("mysql_stmt_num_rows(%p) = %u", rs->statement->ptr,
           (unsigned) (rs->nrows));
+
+    rs->nfields = (uint32_t) mysql_stmt_field_count(stmt->ptr);
+    DEBUG("mysql_stmt_field_count(%p) = %u", rs->statement->ptr,
+          (unsigned) (rs->nfields));
 
     return DB_ERROR_NONE;
   }
@@ -907,6 +969,74 @@ db_error_t mysql_drv_execute(db_stmt_t *stmt, db_result_t *rs)
   free(buf);
 
   return rc;
+}
+
+/* Retrieve the next result of a prepared statement */
+
+db_error_t mysql_drv_stmt_next_result(db_stmt_t *stmt, db_result_t *rs)
+{
+  db_conn_t       *con = stmt->connection;
+
+  if (args.dry_run)
+    return DB_ERROR_NONE;
+
+  con->sql_errno = 0;
+  con->sql_state = NULL;
+  con->sql_errmsg = NULL;
+
+  if (stmt->emulated)
+    return mysql_drv_next_result(con, rs);
+
+  if (stmt->ptr == NULL)
+    {
+      log_text(LOG_DEBUG,
+               "ERROR: exiting mysql_drv_stmt_next_result(), "
+               "uninitialized statement");
+      return DB_ERROR_FATAL;
+    }
+
+  int err = mysql_stmt_next_result(stmt->ptr);
+  DEBUG("mysql_stmt_next_result(%p) = %d", stmt->ptr, err);
+
+  if (SB_UNLIKELY(err > 0))
+    return check_error(con, "mysql_drv_stmt_next_result()", stmt->query,
+                       &rs->counter);
+
+  if (err == -1)
+  {
+    rs->counter = SB_CNT_OTHER;
+    return DB_ERROR_NONE;
+  }
+
+  err = mysql_stmt_store_result(stmt->ptr);
+  DEBUG("mysql_stmt_store_result(%p) = %d", stmt->ptr, err);
+
+  if (err)
+    return check_error(con, "mysql_stmt_store_result()", NULL, &rs->counter);
+
+  if (mysql_stmt_errno(stmt->ptr) == 0 &&
+      mysql_stmt_field_count(stmt->ptr) == 0)
+  {
+    rs->nrows = (uint32_t) mysql_stmt_affected_rows(stmt->ptr);
+    DEBUG("mysql_stmt_affected_rows(%p) = %u", stmt->ptr,
+          (unsigned) rs->nrows);
+
+    rs->counter = (rs->nrows > 0) ? SB_CNT_WRITE : SB_CNT_OTHER;
+
+    return DB_ERROR_NONE;
+  }
+
+  rs->counter = SB_CNT_READ;
+
+  rs->nrows = (uint32_t) mysql_stmt_num_rows(stmt->ptr);
+  DEBUG("mysql_stmt_num_rows(%p) = %u", rs->statement->ptr,
+        (unsigned) (rs->nrows));
+
+  rs->nfields = (uint32_t) mysql_stmt_field_count(stmt->ptr);
+  DEBUG("mysql_stmt_field_count(%p) = %u", rs->statement->ptr,
+        (unsigned) (rs->nfields));
+
+  return DB_ERROR_NONE;
 }
 
 
@@ -999,14 +1129,100 @@ int mysql_drv_fetch_row(db_result_t *rs, db_row_t *row)
   DEBUG("mysql_fetch_row(%p) = %p", rs->ptr, my_row);
 
   unsigned long *lengths = mysql_fetch_lengths(rs->ptr);
+  DEBUG("mysql_fetch_lengths(%p) = %p", rs->ptr, lengths);
+
   if (lengths == NULL)
-    return DB_ERROR_NONE;
+    return DB_ERROR_IGNORABLE;
 
   for (size_t i = 0; i < rs->nfields; i++)
   {
     row->values[i].len = lengths[i];
     row->values[i].ptr = my_row[i];
   }
+
+  return DB_ERROR_NONE;
+}
+
+/* Check if more result sets are available */
+
+bool mysql_drv_more_results(db_conn_t *sb_conn)
+{
+  db_mysql_conn_t *db_mysql_con;
+  MYSQL *con;
+
+  if (args.dry_run)
+    return false;
+
+  db_mysql_con = (db_mysql_conn_t *)sb_conn->ptr;
+  con = db_mysql_con->mysql;
+
+  bool res = mysql_more_results(con);
+  DEBUG("mysql_more_results(%p) = %d", con, res);
+
+  return res;
+}
+
+/* Retrieve the next result set */
+
+db_error_t mysql_drv_next_result(db_conn_t *sb_conn, db_result_t *rs)
+{
+  db_mysql_conn_t *db_mysql_con;
+  MYSQL *con;
+
+  if (args.dry_run)
+    return DB_ERROR_NONE;
+
+  sb_conn->sql_errno = 0;
+  sb_conn->sql_state = NULL;
+  sb_conn->sql_errmsg = NULL;
+
+  db_mysql_con = (db_mysql_conn_t *)sb_conn->ptr;
+  con = db_mysql_con->mysql;
+
+  int err = mysql_next_result(con);
+  DEBUG("mysql_next_result(%p) = %d", con, err);
+
+  if (SB_UNLIKELY(err > 0))
+    return check_error(sb_conn, "mysql_drv_next_result()", NULL, &rs->counter);
+
+  if (err == -1)
+  {
+    rs->counter = SB_CNT_OTHER;
+    return DB_ERROR_NONE;
+  }
+
+  /* Store results and get query type */
+  MYSQL_RES *res = mysql_store_result(con);
+  DEBUG("mysql_store_result(%p) = %p", con, res);
+
+  if (res == NULL)
+  {
+    if (mysql_errno(con) == 0 && mysql_field_count(con) == 0)
+    {
+      /* Not a select. Check if it was a DML */
+      uint32_t nrows = (uint32_t) mysql_affected_rows(con);
+      if (nrows > 0)
+      {
+        rs->counter = SB_CNT_WRITE;
+        rs->nrows = nrows;
+      }
+      else
+        rs->counter = SB_CNT_OTHER;
+
+      return DB_ERROR_NONE;
+    }
+
+    return check_error(sb_conn, "mysql_store_result()", NULL, &rs->counter);
+  }
+
+  rs->counter = SB_CNT_READ;
+  rs->ptr = (void *)res;
+
+  rs->nrows = mysql_num_rows(res);
+  DEBUG("mysql_num_rows(%p) = %u", res, (unsigned int) rs->nrows);
+
+  rs->nfields = mysql_num_fields(res);
+  DEBUG("mysql_num_fields(%p) = %u", res, (unsigned int) rs->nfields);
 
   return DB_ERROR_NONE;
 }

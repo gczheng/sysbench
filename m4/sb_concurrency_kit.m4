@@ -20,7 +20,7 @@
 AC_DEFUN([SB_CONCURRENCY_KIT], [
 
 AC_ARG_WITH([system-ck],
-  AC_HELP_STRING([--with-system-ck],
+  AS_HELP_STRING([--with-system-ck],
   [Use system-provided Concurrency Kit headers and library (requires pkg-config)]),
   [sb_use_ck="system"],
   [sb_use_ck="bundled"])
@@ -56,6 +56,9 @@ AS_IF([test "x$sb_cv_lib_ck" = "xsystem"],
         ;;
       i686*)
         CK_CONFIGURE_FLAGS="--platform=i686"
+        ;;
+      mips64*)
+        CK_CONFIGURE_FLAGS="--use-cc-builtins"
         ;;
     esac
     # Add --enable-lse to CK build flags, if LSE instructions are supported by

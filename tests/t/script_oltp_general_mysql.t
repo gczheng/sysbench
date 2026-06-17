@@ -11,10 +11,10 @@
   *************************** 1. row ***************************
   sbtest1
   CREATE TABLE `sbtest1` (
-    `id` int(11) NOT NULL AUTO_INCREMENT,
-    `k` int(11) NOT NULL DEFAULT '0',
-    `c` char(120) NOT NULL DEFAULT '',
-    `pad` char(60) NOT NULL DEFAULT '',
+    `id` int* NOT NULL AUTO_INCREMENT, (glob)
+    `k` int* NOT NULL DEFAULT '0', (glob)
+    `c` char(120)* NOT NULL DEFAULT '', (glob)
+    `pad` char(60)* NOT NULL DEFAULT '', (glob)
     PRIMARY KEY (`id`),
     KEY `k_1` (`k`)
   ) ENGINE=InnoDB * COMMENT='foo' (glob)
